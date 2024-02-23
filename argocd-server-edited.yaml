@@ -51,41 +51,18 @@ spec:
               topologyKey: kubernetes.io/hostname
             weight: 5
       initContainers:
-        - name: download-tools
-          image: alpine:latest
-          command: [sh, -ec]
-          env:
-            - name: HELM_SECRETS_VERSION
-              value: "4.1.1"
-            - name: KUBECTL_VERSION
-              value: "1.24.6"
-            - name: VALS_VERSION
-              value: "0.18.0"
-            - name: SOPS_VERSION
-              value: "3.7.3"
-          args:
-            - |
-              mkdir -p /custom-tools/helm-plugins
-              wget -qO- https://github.com/jkroepke/helm-secrets/releases/download/v${HELM_SECRETS_VERSION}/helm-secrets.tar.gz | tar -C /custom-tools/helm-plugins -xzf-;
-
-              wget -qO /custom-tools/sops https://github.com/mozilla/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux
-              wget -qO /custom-tools/kubectl https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/amd64/kubectl
-
-              wget -qO- https://github.com/variantdev/vals/releases/download/v${VALS_VERSION}/vals_${VALS_VERSION}_linux_amd64.tar.gz | tar -xzf- -C /custom-tools/ vals;
-              
-              # helm secrets wrapper mode installation (optional)
-              # RUN printf '#!/usr/bin/env sh\nexec %s secrets "$@"' "${HELM_SECRETS_HELM_PATH}" >"/usr/local/sbin/helm" && chmod +x "/custom-tools/helm"
-              
-              chmod +x /custom-tools/*
-          volumeMounts:
-            - mountPath: /custom-tools
-              name: custom-tools
+      - name: install-ksops
+        image: viaductoss/ksops:v3.0.2
+        command: ["/bin/sh", "-c"]
+        args:
+        - 'echo "Installing KSOPS..."; cp ksops /custom-tools/; cp $GOPATH/bin/kustomize /custom-tools/; echo "Done.";'
+        volumeMounts:
+          - mountPath: /custom-tools
+            name: custom-tools
       containers:
       - command:
         - argocd-server
         env:
-        - name: SOPS_AGE_KEY_FILE
-          value: /.config/sops/age/keys.txt
         - name: HELM_PLUGINS
           value: /custom-tools/helm-plugins/
         - name: HELM_SECRETS_SOPS_PATH
@@ -102,6 +79,10 @@ spec:
           value: "true"
         - name: HELM_SECRETS_VALUES_ALLOW_PATH_TRAVERSAL
           value: "true"
+        - name: XDG_CONFIG_HOME
+          value: /.config
+        - name: SOPS_AGE_KEY_FILE
+          value: /.config/sops/age/keys.txt
         - name: ARGOCD_SERVER_INSECURE
           valueFrom:
             configMapKeyRef:
@@ -329,11 +310,15 @@ spec:
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
+        - mountPath: /usr/local/bin/kustomize
+          name: custom-tools
+          subPath: kustomize
+        - mountPath: /.config/kustomize/plugin/viaduct.ai/v1/ksops/ksops
+          name: custom-tools
+          subPath: ksops
         - mountPath: /.config/sops/age/keys.txt
           name: sops-age
           subPath: keys.txt
-        - mountPath: /custom-tools
-          name: custom-tools
         - mountPath: /app/config/ssh
           name: ssh-known-hosts
         - mountPath: /app/config/tls
@@ -354,11 +339,11 @@ spec:
       serviceAccountName: argocd-server
       terminationGracePeriodSeconds: 30
       volumes:
+      - name: custom-tools
+        emptyDir: {}
       - name: sops-age
         secret:
           secretName: sops-age
-      - name: custom-tools
-        emptyDir: {}
       - emptyDir: {}
         name: plugins-home
       - emptyDir: {}
