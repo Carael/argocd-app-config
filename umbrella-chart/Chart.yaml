@@ -1,0 +1,4 @@
+apiVersion: v2
+name: myapp
+description: A Helm chart for deploying a containerized application with custom appsettings.
+version: 0.1.0
